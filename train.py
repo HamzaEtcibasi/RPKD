@@ -121,6 +121,25 @@ parser.add_argument('--rkd-squared', action='store_true', default=False)
 parser.add_argument('--fitnet-stage', default=[1, 2, 3, 4], nargs='+', type=int)
 parser.add_argument('--fitnet-loss-weight', default=1, type=float)
 
+# RPKD parameters
+parser.add_argument('--num-random-prototypes', default=500, type=int,
+                    help='Number of random prototypes M (default: 500)')
+parser.add_argument('--random-embed-dim', default=256, type=int,
+                    help='Prototype embedding dimension R (default: 256)')
+parser.add_argument('--random-logit-w', default=10.0, type=float,
+                    help='Logit branch loss weight (default: 10.0)')
+parser.add_argument('--random-cam-w', default=10.0, type=float,
+                    help='Feature (map) branch loss weight (default: 10.0)')
+parser.add_argument('--random-logit-T', default=4.0, type=float,
+                    help='Temperature for prototype logit KD (default: 4.0)')
+parser.add_argument('--proto-seed', default=None, type=int,
+                    help='Random seed for prototype initialization (default: None)')
+parser.add_argument('--proto-type', default='random', type=str,
+                    choices=['random', 'orthogonal', 'block_orthogonal', 'dct', 'learned'],
+                    help='Prototype initialization type (default: random)')
+parser.add_argument('--student-proj-hidden-mul', default=2.0, type=float,
+                    help='Hidden dim multiplier for student MLP projectors (default: 2.0)')
+
 # Misc
 parser.add_argument('--speedtest', action='store_true')
 
@@ -346,6 +365,10 @@ parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
+parser.add_argument('--valdir', metavar='DIR',
+                    help='path to validation set (ImageNet only)')
+parser.add_argument('--subset', action='store_true',
+                    help='Use ImageNet subset (reads class list from data/imagenet100_classes.txt)')
 
 
 def _parse_args():
@@ -368,6 +391,9 @@ def _parse_args():
 def main():
     setup_default_logging(log_path='train.log')
     args, args_text = _parse_args()
+
+    if args.subset and args.dataset == 'imagenet':
+        args.num_classes = 100
 
     args.prefetcher = (not args.no_prefetcher) and (args.distiller != 'crd')
     args.distributed = False
@@ -432,10 +458,28 @@ def main():
 
     teacher = None
     if args.teacher:
-        teacher = create_model(
-            args.teacher,
-            num_classes=args.num_classes)
+        num_cls = 1000 if args.subset else args.num_classes
+        teacher = create_model(args.teacher, num_classes=num_cls)
         load_checkpoint(teacher, args.teacher_pretrained, use_ema=args.use_ema_teacher)
+
+        if args.subset:
+            _script_dir = os.path.dirname(os.path.abspath(__file__))
+            _classes_file = os.path.join(_script_dir, "data", "imagenet100_classes.txt")
+            with open(_classes_file) as _f:
+                subset_classes = [l.strip() for l in _f if l.strip()]
+
+            full_folder_names = sorted(os.listdir(os.path.join(args.data_dir, 'train')))
+            folder_to_idx = {folder: i for i, folder in enumerate(full_folder_names)}
+            subset_indices = torch.tensor([folder_to_idx[c] for c in subset_classes])
+
+            old_fc = teacher.get_classifier()
+            new_weight = old_fc.weight.data[subset_indices]
+            new_bias = old_fc.bias.data[subset_indices] if old_fc.bias is not None else None
+            teacher.reset_classifier(num_classes=100)
+            teacher.get_classifier().weight.data.copy_(new_weight)
+            if new_bias is not None:
+                teacher.get_classifier().bias.data.copy_(new_bias)
+
         if Distiller.requires_feat:
             register_new_forward(teacher)
 
@@ -487,23 +531,46 @@ def main():
         data_config['std'] = (0.2673, 0.2564, 0.2762)
 
     else:
-        if args.distiller == 'crd':
-            dataset_train = ImageNetInstanceSample(root=f'{args.data_dir}/train', name=args.dataset,
-                                                   class_map=args.class_map, load_bytes=False, is_sample=True,
-                                                   k=args.crd_k)
-        else:
+        if args.subset and args.dataset == 'imagenet':
+            _script_dir = os.path.dirname(os.path.abspath(__file__))
+            _classes_file = os.path.join(_script_dir, "data", "imagenet100_classes.txt")
+            with open(_classes_file) as _f:
+                subset_classes = [l.strip() for l in _f if l.strip()]
+            class_map = {cls_name: i for i, cls_name in enumerate(subset_classes)}
+
             dataset_train = create_dataset(
-                args.dataset, root=args.data_dir, split=args.train_split, is_training=True,
-                class_map=args.class_map,
+                args.dataset, root=f'{args.data_dir}/train', split=args.train_split, is_training=True,
+                class_map=class_map,
                 download=args.dataset_download,
                 batch_size=args.batch_size,
                 repeats=args.epoch_repeats)
 
-        dataset_eval = create_dataset(
-            args.dataset, root=args.data_dir, split=args.val_split, is_training=False,
-            class_map=args.class_map,
-            download=args.dataset_download,
-            batch_size=args.batch_size)
+            valdir = args.valdir if args.valdir else args.data_dir
+            dataset_eval = create_dataset(
+                args.dataset, root=valdir, split=args.val_split, is_training=False,
+                class_map=class_map,
+                download=args.dataset_download,
+                batch_size=args.batch_size)
+
+        else:
+            if args.distiller == 'crd':
+                dataset_train = ImageNetInstanceSample(root=f'{args.data_dir}/train', name=args.dataset,
+                                                       class_map=args.class_map, load_bytes=False, is_sample=True,
+                                                       k=args.crd_k)
+            else:
+                dataset_train = create_dataset(
+                    args.dataset, root=args.data_dir, split=args.train_split, is_training=True,
+                    class_map=args.class_map,
+                    download=args.dataset_download,
+                    batch_size=args.batch_size,
+                    repeats=args.epoch_repeats)
+
+            valdir = args.valdir if args.valdir else args.data_dir
+            dataset_eval = create_dataset(
+                args.dataset, root=valdir, split=args.val_split, is_training=False,
+                class_map=args.class_map,
+                download=args.dataset_download,
+                batch_size=args.batch_size)
 
     # setup loss function
     mixup_active = args.mixup > 0 or args.cutmix > 0. or args.cutmix_minmax is not None
