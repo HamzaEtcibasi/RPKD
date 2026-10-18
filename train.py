@@ -371,6 +371,25 @@ parser.add_argument('--subset', action='store_true',
                     help='Use ImageNet subset (reads class list from data/imagenet100_classes.txt)')
 
 
+def _apply_subset_head_surgery(teacher, data_dir, classes_file):
+    """Shrink a 1000-class teacher head down to the subset classes."""
+    with open(classes_file) as f:
+        synsets = [line.strip() for line in f if line.strip()]
+
+    all_classes = sorted(os.listdir(os.path.join(data_dir, 'train')))
+    class_to_idx = {cls: i for i, cls in enumerate(all_classes)}
+    indices = torch.tensor([class_to_idx[s] for s in synsets])
+
+    old_head = teacher.get_classifier()
+    new_weight = old_head.weight.data[indices]
+    new_bias = old_head.bias.data[indices] if old_head.bias is not None else None
+
+    teacher.reset_classifier(num_classes=len(synsets))
+    teacher.get_classifier().weight.data.copy_(new_weight)
+    if new_bias is not None:
+        teacher.get_classifier().bias.data.copy_(new_bias)
+
+
 def _parse_args():
     # Do we have a config file to parse?
     args_config, remaining = config_parser.parse_known_args()
@@ -458,31 +477,15 @@ def main():
 
     teacher = None
     if args.teacher:
-        num_cls = 1000 if args.subset else args.num_classes
-        teacher = create_model(args.teacher, num_classes=num_cls)
+        teacher = create_model(args.teacher, num_classes=1000 if args.subset else args.num_classes)
         load_checkpoint(teacher, args.teacher_pretrained, use_ema=args.use_ema_teacher)
 
         if args.subset:
-            _script_dir = os.path.dirname(os.path.abspath(__file__))
-            _classes_file = os.path.join(_script_dir, "data", "imagenet100_classes.txt")
-            with open(_classes_file) as _f:
-                subset_classes = [l.strip() for l in _f if l.strip()]
-
-            full_folder_names = sorted(os.listdir(os.path.join(args.data_dir, 'train')))
-            folder_to_idx = {folder: i for i, folder in enumerate(full_folder_names)}
-            subset_indices = torch.tensor([folder_to_idx[c] for c in subset_classes])
-
-            old_fc = teacher.get_classifier()
-            new_weight = old_fc.weight.data[subset_indices]
-            new_bias = old_fc.bias.data[subset_indices] if old_fc.bias is not None else None
-            teacher.reset_classifier(num_classes=100)
-            teacher.get_classifier().weight.data.copy_(new_weight)
-            if new_bias is not None:
-                teacher.get_classifier().bias.data.copy_(new_bias)
+            classes_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "imagenet100_classes.txt")
+            _apply_subset_head_surgery(teacher, args.data_dir, classes_file)
 
         if Distiller.requires_feat:
             register_new_forward(teacher)
-
         teacher.requires_grad_(False)
         teacher.eval()
 
