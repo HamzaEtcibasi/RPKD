@@ -737,11 +737,13 @@ def main():
         if args.experiment:
             exp_name = args.experiment
         else:
-            exp_name = '-'.join([
+            exp_name = '-'.join(filter(None, [
                 datetime.now().strftime("%Y%m%d-%H%M%S"),
+                safe_model_name(args.teacher) if args.teacher else None,
                 safe_model_name(args.model),
-                str(data_config['input_size'][-1])
-            ])
+                str(data_config['input_size'][-1]),
+                f'seed{args.seed}',
+            ]))
         output_dir = get_outdir(args.output if args.output else './output/train', exp_name)
         decreasing = True if eval_metric == 'loss' else False
         saver_dir = os.path.join(output_dir, 'checkpoint')
