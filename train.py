@@ -128,8 +128,8 @@ parser.add_argument('--random-embed-dim', default=256, type=int,
                     help='Prototype embedding dimension R (default: 256)')
 parser.add_argument('--random-logit-w', default=10.0, type=float,
                     help='Logit branch loss weight (default: 10.0)')
-parser.add_argument('--random-cam-w', default=10.0, type=float,
-                    help='Feature (map) branch loss weight (default: 10.0)')
+parser.add_argument('--random-feat-w', default=10.0, type=float,
+                    help='Feature branch loss weight (default: 10.0)')
 parser.add_argument('--random-logit-T', default=4.0, type=float,
                     help='Temperature for prototype logit KD (default: 4.0)')
 parser.add_argument('--proto-seed', default=None, type=int,

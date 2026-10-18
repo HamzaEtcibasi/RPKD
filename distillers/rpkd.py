@@ -245,7 +245,7 @@ class RPKD(BaseDistiller):
 
         self.gt_loss_weight = getattr(args, "gt_loss_weight", 1.0)
         self.logit_loss_w   = getattr(args, "random_logit_w", 10.0)
-        self.feat_loss_w    = getattr(args, "random_cam_w", 10.0)
+        self.feat_loss_w    = getattr(args, "random_feat_w", 10.0)
         self.logit_temp     = getattr(args, "random_logit_T", 4.0)
 
         # Prototype bank
