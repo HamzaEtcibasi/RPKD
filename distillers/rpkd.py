@@ -237,8 +237,8 @@ class RPKD(BaseDistiller):
 
     requires_feat = True
 
-    def __init__(self, student, teacher, criterion, args, teacher2=None, **kwargs):
-        super().__init__(student, teacher, criterion, args, teacher2)
+    def __init__(self, student, teacher, criterion, args, **kwargs):
+        super().__init__(student, teacher, criterion, args)
 
         M = getattr(args, "num_random_prototypes", 500)
         R = getattr(args, "random_embed_dim", 256)
