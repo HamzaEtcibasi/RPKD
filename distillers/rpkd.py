@@ -326,11 +326,11 @@ class RPKD(BaseDistiller):
         teacher_feat = self._get_teacher_feat(image)
         logits_student, student_feat = self._get_student_feat(image)
 
-        # Cross-entropy task loss
-        loss_gt = self.gt_loss_weight * (
-            F.cross_entropy(logits_student, label) if label.dim() == 1
-            else self.criterion(logits_student, label)
-        )
+        # Task loss. The criterion built in train.py already matches the label
+        # format -- LabelSmoothingCrossEntropy for hard labels, SoftTargetCrossEntropy
+        # under mixup -- so dispatching on label.dim() here would only discard the
+        # configured label smoothing.
+        loss_gt = self.gt_loss_weight * self.criterion(logits_student, label)
 
         # Logit branch: L_logit
         t_global = get_global_feat(teacher_feat)
