@@ -1,7 +1,7 @@
 epochs: 300
 batch_size: 128
 lr: 0.05
-min_lr: 1e-3
+min_lr: 1e-5
 opt: sgd
 weight_decay: 2e-3
 sched: cosine
