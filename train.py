@@ -529,6 +529,12 @@ def main():
                 'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
                 'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
 
+    # Validation root. timm's split search only tries val/validation/eval/evaluation
+    # under the data root, never test/, and silently falls back to the root itself --
+    # which for an ImageFolder layout of train/ + test/ sweeps the training images
+    # into the validation set. Default to test/ so that never happens.
+    valdir = args.valdir if args.valdir else os.path.join(args.data_dir, 'test')
+
     # create the train and eval datasets
     if args.dataset == 'cifar100':
         if args.distiller == 'crd':
@@ -554,7 +560,6 @@ def main():
                 batch_size=args.batch_size,
                 repeats=args.epoch_repeats)
 
-            valdir = args.valdir if args.valdir else args.data_dir
             dataset_eval = create_dataset(
                 args.dataset, root=valdir, split=args.val_split, is_training=False,
                 class_map=class_map,
@@ -574,7 +579,6 @@ def main():
                     batch_size=args.batch_size,
                     repeats=args.epoch_repeats)
 
-            valdir = args.valdir if args.valdir else args.data_dir
             dataset_eval = create_dataset(
                 args.dataset, root=valdir, split=args.val_split, is_training=False,
                 class_map=args.class_map,
