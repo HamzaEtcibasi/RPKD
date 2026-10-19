@@ -129,52 +129,38 @@ def select_last_usable_feature(feat_list, owner_name="model"):
 # Projectors
 # ──────────────────────────────────────────────────────────────────────────────
 
-class FrozenRandomLazyLinear(nn.Module):
-    """Lazy random linear projector: built on first forward call, then frozen."""
+class FrozenRandomProjector(nn.Module):
+    """Random linear projector with frozen Gaussian weights.
 
-    def __init__(self, out_dim, bias=True, weight_std=0.02):
+    Drawn from an explicit generator so that every rank builds the identical
+    projection without relying on DDP to synchronise it.
+    """
+
+    def __init__(self, in_dim, out_dim, generator, weight_std=0.02):
         super().__init__()
-        self.out_dim = out_dim
-        self.use_bias = bias
-        self.weight_std = weight_std
-        self.linear = None
-
-    def _build(self, in_dim, device, dtype):
-        self.linear = nn.Linear(in_dim, self.out_dim, bias=self.use_bias).to(device=device, dtype=dtype)
-        nn.init.normal_(self.linear.weight, mean=0.0, std=self.weight_std)
-        if self.use_bias:
-            nn.init.zeros_(self.linear.bias)
-        for p in self.linear.parameters():
-            p.requires_grad_(False)
+        self.linear = nn.Linear(in_dim, out_dim, bias=True)
+        with torch.no_grad():
+            self.linear.weight.copy_(torch.randn(out_dim, in_dim, generator=generator) * weight_std)
+            self.linear.bias.zero_()
+        self.linear.requires_grad_(False)
 
     def forward(self, x):
-        if self.linear is None:
-            self._build(x.shape[-1], x.device, x.dtype)
         return self.linear(x)
 
 
-class LearnableLazyMLP(nn.Module):
-    """Lazy learnable MLP projector: built on first forward call."""
+class ProjectionMLP(nn.Module):
+    """Learnable two-layer projector for the student branch."""
 
-    def __init__(self, out_dim, hidden_mul=2.0, use_gelu=True):
+    def __init__(self, in_dim, out_dim, hidden_mul=2.0):
         super().__init__()
-        self.out_dim = out_dim
-        self.hidden_mul = hidden_mul
-        self.use_gelu = use_gelu
-        self.net = None
-
-    def _build(self, in_dim, device, dtype):
-        hidden_dim = max(1, int(in_dim * self.hidden_mul))
-        act = nn.GELU() if self.use_gelu else nn.ReLU(inplace=True)
+        hidden_dim = max(1, int(in_dim * hidden_mul))
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
-            act,
-            nn.Linear(hidden_dim, self.out_dim),
-        ).to(device=device, dtype=dtype)
+            nn.GELU(),
+            nn.Linear(hidden_dim, out_dim),
+        )
 
     def forward(self, x):
-        if self.net is None:
-            self._build(x.shape[-1], x.device, x.dtype)
         return self.net(x)
 
 
@@ -248,20 +234,23 @@ class RPKD(BaseDistiller):
         self.feat_loss_w    = getattr(args, "random_feat_w", 10.0)
         self.logit_temp     = getattr(args, "random_logit_T", 4.0)
 
-        # Prototype bank
-        proto_seed = getattr(args, "proto_seed", None)
+        # The prototype space must be byte-identical on every rank. timm seeds each
+        # rank differently (seed + rank), so draw it from an explicit generator
+        # rather than the global RNG.
         proto_type = getattr(args, "proto_type", "random")
+        proto_seed = getattr(args, "proto_seed", None)
+        if proto_seed is None:
+            proto_seed = getattr(args, "seed", 0)
+        gen = torch.Generator().manual_seed(int(proto_seed))
 
         if proto_type == "orthogonal":
             assert M == R, f"orthogonal proto requires M==R, got M={M}, R={R}"
-            proto = torch.empty(M, R)
-            nn.init.orthogonal_(proto)
+            proto, _ = torch.linalg.qr(torch.randn(M, R, generator=gen))
 
         elif proto_type == "block_orthogonal":
             blocks, remaining = [], M
             while remaining > 0:
-                block = torch.empty(R, R)
-                nn.init.orthogonal_(block)
+                block, _ = torch.linalg.qr(torch.randn(R, R, generator=gen))
                 take = min(R, remaining)
                 blocks.append(block[:take])
                 remaining -= take
@@ -275,8 +264,7 @@ class RPKD(BaseDistiller):
             proto = torch.tensor(dct_mat, dtype=torch.float32)
 
         else:  # 'random' or 'learned'
-            gen = torch.Generator().manual_seed(proto_seed) if proto_seed is not None else None
-            proto = torch.randn(M, R) if gen is None else torch.randn(M, R, generator=gen)
+            proto = torch.randn(M, R, generator=gen)
 
         proto = F.normalize(proto, dim=1)
 
@@ -285,19 +273,36 @@ class RPKD(BaseDistiller):
         else:
             self.register_buffer("prototype_bank", proto)
 
-        # Teacher projectors (frozen random)
-        self.teacher_global_proj = FrozenRandomLazyLinear(out_dim=R, bias=True, weight_std=0.02)
-        self.teacher_patch_proj  = FrozenRandomLazyLinear(out_dim=R, bias=True, weight_std=0.02)
-
-        # Student projectors (learnable MLP)
+        # Projectors are sized from each backbone's final feature width, so they are
+        # fully constructed here. Building them lazily on the first forward would
+        # hide the student's parameters from DDP, which wraps the model beforehand.
+        teacher_dim = teacher.num_features
+        student_dim = student.num_features
         hidden_mul = getattr(args, "student_proj_hidden_mul", 2.0)
-        self.student_global_proj = LearnableLazyMLP(out_dim=R, hidden_mul=hidden_mul, use_gelu=True)
-        self.student_patch_proj  = LearnableLazyMLP(out_dim=R, hidden_mul=hidden_mul, use_gelu=True)
 
-        self.teacher.requires_grad_(False)
-        self.teacher.eval()
+        self.teacher_global_proj = FrozenRandomProjector(teacher_dim, R, gen)
+        self.teacher_patch_proj = FrozenRandomProjector(teacher_dim, R, gen)
+        self.student_global_proj = ProjectionMLP(student_dim, R, hidden_mul)
+        self.student_patch_proj = ProjectionMLP(student_dim, R, hidden_mul)
+
+        # The teacher is frozen and identical on every rank, so it has no business
+        # inside DDP: wrapping it makes DDP broadcast its buffers from rank 0 on
+        # every forward, which strands the weights on cuda:0 and deadlocks NCCL.
+        # Detaching it from the module registry also means .cuda()/.to() no longer
+        # reach it, hence the device pinning in _get_teacher_feat below.
+        teacher = self._modules.pop("teacher")
+        teacher.requires_grad_(False)
+        teacher.eval()
+        object.__setattr__(self, "teacher", teacher)
+        object.__setattr__(self, "_teacher_device", None)
 
     def _get_teacher_feat(self, image):
+        # Teacher sits outside the module registry, so follow the batch onto this
+        # rank's GPU instead of waiting for a .cuda() that never arrives.
+        if self._teacher_device != image.device:
+            self.teacher.to(image.device)
+            object.__setattr__(self, "_teacher_device", image.device)
+
         with torch.no_grad():
             try:
                 feats = self.teacher.forward_features(image, requires_feat=True)
@@ -318,9 +323,6 @@ class RPKD(BaseDistiller):
         return logits, select_last_usable_feature(feat, "student")
 
     def forward(self, image, label, *args, **kwargs):
-        with torch.no_grad():
-            self.teacher.eval()
-
         teacher_feat = self._get_teacher_feat(image)
         logits_student, student_feat = self._get_student_feat(image)
 
