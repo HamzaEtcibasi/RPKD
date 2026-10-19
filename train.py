@@ -362,7 +362,6 @@ parser.add_argument('--eval-metric', default='top1', type=str, metavar='EVAL_MET
                     help='Best metric (default: "top1"')
 parser.add_argument('--tta', type=int, default=0, metavar='N',
                     help='Test/inference time augmentation (oversampling) factor. 0=None (default: 0)')
-parser.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
 parser.add_argument('--use-multi-epochs-loader', action='store_true', default=False,
                     help='use the multi-epochs-loader to save time at the beginning of every epoch')
@@ -420,13 +419,19 @@ def main():
     if 'WORLD_SIZE' in os.environ:
         args.distributed = int(os.environ['WORLD_SIZE']) > 1
     args.device = 'cuda:0'
+    args.local_rank = 0
     args.world_size = 1
     args.rank = 0  # global rank
     if args.distributed:
         assert 'RANK' in os.environ and 'WORLD_SIZE' in os.environ
         args.rank = int(os.environ["RANK"])
         args.world_size = int(os.environ['WORLD_SIZE'])
-        args.device = int(os.environ['LOCAL_RANK'])
+        # torchrun exports LOCAL_RANK in the environment rather than passing a
+        # --local_rank argument the way torch.distributed.launch used to, so it has
+        # to be read from there. Missing it leaves every rank on cuda:0 and DDP
+        # scatters batches to the wrong GPU.
+        args.local_rank = int(os.environ['LOCAL_RANK'])
+        args.device = args.local_rank
 
         torch.cuda.set_device(args.device)
 
