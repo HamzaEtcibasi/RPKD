@@ -57,10 +57,24 @@ def resize_maps_to_7x7(x):
     return F.adaptive_avg_pool2d(x, (target, target))
 
 
-def prototype_map_loss(teacher_maps, student_maps):
-    """Feature branch loss (L_feat): cosine similarity on prototype activation maps."""
+def normalize_maps_per_channel(x, eps=1e-8):
+    """Standardize each prototype map over its own spatial extent."""
+    x = x - x.mean(dim=(-2, -1), keepdim=True)
+    return x / (x.std(dim=(-2, -1), keepdim=True, unbiased=False) + eps)
+
+
+def prototype_map_loss(teacher_maps, student_maps, normalize_each_map=True):
+    """Feature branch loss (L_feat): cosine similarity on prototype activation maps.
+
+    With normalize_each_map the maps are first standardized per prototype, which
+    removes each map's mean activation and contrast before the comparison, so the
+    loss only sees the spatial pattern.
+    """
     teacher_maps = resize_maps_to_7x7(teacher_maps)
     student_maps = resize_maps_to_7x7(student_maps)
+    if normalize_each_map:
+        teacher_maps = normalize_maps_per_channel(teacher_maps)
+        student_maps = normalize_maps_per_channel(student_maps)
     return cosine_map_loss(teacher_maps, student_maps)
 
 
@@ -233,6 +247,7 @@ class RPKD(BaseDistiller):
         self.logit_loss_w   = getattr(args, "random_logit_w", 10.0)
         self.feat_loss_w    = getattr(args, "random_feat_w", 10.0)
         self.logit_temp     = getattr(args, "random_logit_T", 4.0)
+        self.normalize_feat_maps = getattr(args, "normalize_feat_maps", True)
 
         # The prototype space must be byte-identical on every rank. timm seeds each
         # rank differently (seed + rank), so draw it from an explicit generator
@@ -350,7 +365,7 @@ class RPKD(BaseDistiller):
         t_maps, _ = build_prototype_maps(t_patches, self.teacher_patch_proj, self.prototype_bank)
         s_maps, _ = build_prototype_maps(s_patches, self.student_patch_proj, self.prototype_bank)
 
-        loss_feat = prototype_map_loss(t_maps.detach(), s_maps)
+        loss_feat = prototype_map_loss(t_maps.detach(), s_maps, self.normalize_feat_maps)
 
         return logits_student, {
             "loss_gt":           loss_gt,
