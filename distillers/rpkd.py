@@ -58,7 +58,13 @@ def resize_maps_to_7x7(x):
 
 
 def normalize_maps_per_channel(x, eps=1e-8):
-    """Standardize each prototype map over its own spatial extent."""
+    """Standardize each prototype map over its own spatial extent.
+
+    Computed in fp32: under AMP a near-constant map has a std that rounds to
+    zero in half precision, and dividing by it overflows to inf, which turns the
+    loss into NaN and makes the run unreadable.
+    """
+    x = x.float()
     x = x - x.mean(dim=(-2, -1), keepdim=True)
     return x / (x.std(dim=(-2, -1), keepdim=True, unbiased=False) + eps)
 
