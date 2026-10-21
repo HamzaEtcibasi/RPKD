@@ -142,7 +142,9 @@ parser.add_argument('--student-proj-hidden-mul', default=2.0, type=float,
                     help='Hidden dim multiplier for student MLP projectors (default: 2.0)')
 parser.add_argument('--no-normalize-feat-maps', action='store_false', dest='normalize_feat_maps',
                     help='Compare raw prototype activation maps in L_feat instead of standardizing '
-                         'each map over its spatial extent first')
+                         'each map over its spatial extent first. Pass this for Swin students '
+                         '(swin_nano, swin_pico), whose training diverges under standardization; '
+                         'CNN and DeiT students are better off with it enabled.')
 
 # Misc
 parser.add_argument('--speedtest', action='store_true')
