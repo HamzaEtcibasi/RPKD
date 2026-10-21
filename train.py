@@ -854,6 +854,17 @@ def main():
     if best_metric is not None:
         _logger.info('*** Best metric: {0} (epoch {1})'.format(best_metric, best_epoch))
 
+    # One-glance summary next to summary.csv, so a finished run can be read with
+    # `grep best_ */result.txt` instead of sorting the per-epoch log.
+    if args.rank == 0 and output_dir is not None and best_metric is not None:
+        with open(os.path.join(output_dir, 'result.txt'), 'w') as f:
+            f.write(f'best_{eval_metric}: {best_metric:.3f}\n'
+                    f'best_epoch: {best_epoch}\n'
+                    f'teacher: {args.teacher}\n'
+                    f'student: {args.model}\n'
+                    f'distiller: {args.distiller}\n'
+                    f'seed: {args.seed}\n')
+
     if args.rank == 0:
         os.system(f'mv train.log {output_dir}')
 
