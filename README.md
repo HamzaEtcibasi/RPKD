@@ -5,7 +5,7 @@ You Don't Need Aligned Representations: Knowledge Distillation via Random Protot
 Hamza Etcibasi, Ramazan Gokberk Cinbis \
 *NeurIPS 2026*
 
-A widely held assumption in knowledge distillation is that teacher and student representations must occupy a compatible or explicitly aligned feature space. **RPKD** discards it. Both networks are projected into a shared set of randomly initialized, **frozen** prototype vectors — no architecture-specific adapters, no class-specific alignment, no assumptions about either network's internal dimensions.
+A widely held assumption in knowledge distillation is that teacher and student representations must occupy a compatible or explicitly aligned feature space. **RPKD** discards it. Both networks are compared against a shared bank of randomly initialized, **frozen** prototype vectors, so alignment happens in an external reference space rather than in the teacher's native feature coordinates. The teacher side is projected by fixed random maps that carry no trainable parameters, and only the student adapts.
 
 Two branches carry the transfer: a **logit branch** that aligns global prototype similarity distributions, and a **feature branch** that matches spatially-resolved prototype activation maps. Because the prototype vocabulary is decoupled from the task label space, the supervisory signal does not collapse when the number of classes is small — an advantage logit-based methods lack.
 
