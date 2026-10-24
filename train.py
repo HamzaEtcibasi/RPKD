@@ -140,11 +140,11 @@ parser.add_argument('--proto-type', default='random', type=str,
                     help='Prototype initialization type (default: random)')
 parser.add_argument('--student-proj-hidden-mul', default=2.0, type=float,
                     help='Hidden dim multiplier for student MLP projectors (default: 2.0)')
-parser.add_argument('--no-normalize-feat-maps', action='store_false', dest='normalize_feat_maps',
-                    help='Compare raw prototype activation maps in L_feat instead of standardizing '
-                         'each map over its spatial extent first. Pass this for Swin students '
-                         '(swin_nano, swin_pico), whose training diverges under standardization; '
-                         'CNN and DeiT students are better off with it enabled.')
+parser.add_argument('--normalize-feat-maps', action=argparse.BooleanOptionalAction, default=True,
+                    help='Standardize each prototype activation map over its spatial extent before '
+                         'the L_feat comparison. Disable for Swin students (swin_nano, swin_pico), '
+                         'whose training diverges with it on; CNN and DeiT students are better off '
+                         'with it enabled (default: enabled)')
 
 # Misc
 parser.add_argument('--speedtest', action='store_true')
@@ -347,8 +347,9 @@ parser.add_argument('-j', '--workers', type=int, default=8, metavar='N',
                     help='how many training processes to use (default: 4)')
 parser.add_argument('--save-images', action='store_true', default=False,
                     help='save images of input bathes every log interval for debugging')
-parser.add_argument('--amp', action='store_true', default=True,
-                    help='use NVIDIA Apex AMP or Native AMP for mixed precision training')
+parser.add_argument('--amp', action=argparse.BooleanOptionalAction, default=True,
+                    help='use NVIDIA Apex AMP or Native AMP for mixed precision training '
+                         '(default: enabled)')
 parser.add_argument('--apex-amp', action='store_true', default=False,
                     help='Use NVIDIA Apex AMP mixed precision')
 parser.add_argument('--native-amp', action='store_true', default=False,
