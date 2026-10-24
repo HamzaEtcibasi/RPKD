@@ -128,9 +128,11 @@ parser.add_argument('--num-random-prototypes', default=500, type=int,
 parser.add_argument('--random-embed-dim', default=256, type=int,
                     help='Prototype embedding dimension R (default: 256)')
 parser.add_argument('--random-logit-w', default=10.0, type=float,
-                    help='Logit branch loss weight. Default 10.0 is a good starting point for CIFAR-100 and ImageNet-100; use ~0.1 for ImageNet-1K.')
+                    help='Logit branch loss weight. Tuned per teacher-student pair: the 1-50 range '
+                         'works for CIFAR-100 and ImageNet-100, while ImageNet-1K wants 0.1-1.')
 parser.add_argument('--random-feat-w', default=10.0, type=float,
-                    help='Feature branch loss weight. Default 10.0 is a good starting point for CIFAR-100 and ImageNet-100; use ~0.1 for ImageNet-1K.')
+                    help='Feature branch loss weight. Tuned per teacher-student pair: the 1-50 range '
+                         'works for CIFAR-100 and ImageNet-100, while ImageNet-1K wants 0.1-1.')
 parser.add_argument('--random-logit-T', default=4.0, type=float,
                     help='Temperature for prototype logit KD (default: 4.0)')
 parser.add_argument('--proto-seed', default=None, type=int,
