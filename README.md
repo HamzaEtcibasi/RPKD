@@ -5,6 +5,8 @@ You Don't Need Aligned Representations: Knowledge Distillation via Random Protot
 Hamza Etcibasi, Ramazan Gokberk Cinbis \
 *NeurIPS 2026*
 
+[![arXiv](https://img.shields.io/badge/arXiv-2610.37937-b31b1b.svg)](https://arxiv.org/abs/2610.37937)
+
 A widely held assumption in knowledge distillation is that teacher and student representations must occupy a compatible or explicitly aligned feature space. **RPKD** discards it. Both networks are compared against a shared bank of randomly initialized, **frozen** prototype vectors, so alignment happens in an external reference space rather than in the teacher's native feature coordinates. The teacher side is projected by fixed random maps that carry no trainable parameters, and only the student adapts.
 
 Two branches carry the transfer: a **logit branch** that aligns global prototype similarity distributions, and a **feature branch** that matches spatially-resolved prototype activation maps. Because the prototype vocabulary is decoupled from the task label space, the supervisory signal does not collapse when the number of classes is small — an advantage logit-based methods lack.
@@ -15,16 +17,19 @@ Two branches carry the transfer: a **logit branch** that aligns global prototype
 
 The teacher projects into the prototype matrix **P** through frozen random linear maps (❄), so it never needs updating; the student adapts through learnable MLP projectors (🔥) to match the teacher's prototype similarity patterns.
 
-Over OFA, RPKD gains up to **+8.26%** on CIFAR-100, **+12.46%** on ImageNet-100, and **+1.34%** on ImageNet-1K.
+Over OFA, RPKD gains up to **+7.98%** on CIFAR-100, **+12.44%** on ImageNet-100, and **+1.28%** on ImageNet-1K.
 
 If you find this project useful in your research, please cite:
 
 ```bibtex
 @inproceedings{etcibasi2026rpkd,
-  author    = {Hamza Etcibasi and Ramazan Gokberk Cinbis},
-  title     = {You Don't Need Aligned Representations: Knowledge Distillation via Random Prototype Spaces},
-  booktitle = {Advances in Neural Information Processing Systems},
-  year      = {2026}
+  author        = {Hamza Etcibasi and Ramazan Gokberk Cinbis},
+  title         = {You Don't Need Aligned Representations: Knowledge Distillation via Random Prototype Spaces},
+  booktitle     = {Advances in Neural Information Processing Systems},
+  year          = {2026},
+  eprint        = {2610.37937},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV}
 }
 ```
 
